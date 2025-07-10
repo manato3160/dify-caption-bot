@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// 実行環境をNode.jsに固定し、キャッシュを無効化します
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   const difyApiUrl = `${process.env.DIFY_API_URL}/chat-messages`;
   const difyApiKey = process.env.DIFY_API_KEY;
@@ -14,44 +18,19 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const response = await fetch(difyApiUrl, {
+    const difyResponse = await fetch(difyApiUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${difyApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
-    });
-
-    if (!response.body) {
-      return NextResponse.json(
-        { error: 'No response body from Dify API' },
-        { status: 500 }
-      );
-    }
-
-    // Difyからのストリーミングレスポンスをクライアントに中継
-    const stream = new ReadableStream({
-      async start(controller) {
-        const reader = response.body!.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-          controller.enqueue(value);
-        }
-        controller.close();
-      },
+      // @ts-ignore - Node.js v18+ で安定したストリーミングに必要
+      duplex: 'half'
     });
     
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        'Connection': 'keep-alive',
-      },
-    });
+    // Difyからのレスポンスをそのままブラウザに返すのが最も確実です
+    return difyResponse;
 
   } catch (error) {
     console.error('Error proxying to Dify API:', error);
@@ -60,4 +39,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-} 
+}
