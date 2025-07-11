@@ -43,18 +43,6 @@ const ErrorDisplay = ({ message }: { message: string }) => (
 
 // --- 結果表示コンポーネント ---
 function CaptionResultDisplay({ result, onModifyClick }: { result: any; onModifyClick: () => void }) {
-  // Difyから返却される可能性のある様々な形式の文字列を安全にパース
-  const safeParse = (text: string, key: string) => {
-    try {
-      if (typeof text !== 'string' || !text.includes(key)) return text;
-      const jsonString = text.substring(text.indexOf('{'));
-      const parsed = JSON.parse(jsonString);
-      return parsed[key] || text;
-    } catch {
-      return text;
-    }
-  };
-
   const initial_draft = result['▼初稿'] || result.initial_draft || "初稿なし";
   const pharma_check = result['▼薬機法チェック結果'] || result.pharma_check || "薬機法チェック結果なし";
   const ad_check = result['▼景表法チェック結果'] || result.ad_check || "景表法チェック結果なし";
@@ -140,24 +128,32 @@ export default function DifyCaptionBot() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleFormSubmit = async () => {
-    const { user_client, user_products, user_theme, user_medium, caption_tone } = formData;
-    if (!user_client || !user_products || !user_theme || !user_medium || !caption_tone) {
-      alert("すべての必須項目を入力してください。");
-      return;
+  const handleFormSubmit = async (isModification: boolean = false) => {
+    if (!isModification) {
+        const { user_client, user_products, user_theme, user_medium, caption_tone } = formData;
+        if (!user_client || !user_products || !user_theme || !user_medium || !caption_tone) {
+            alert("すべての必須項目を入力してください。");
+            return;
+        }
+    } else {
+        if (!formData.modification_request.trim()) {
+            alert("修正内容を入力してください。");
+            return;
+        }
+        if (!conversationId) {
+            alert("エラー: 会話が開始されていません。");
+            return;
+        }
     }
-    const query = `クライアント「${user_client}」の製品「${user_products}」について、媒体「${user_medium}」、雰囲気「${caption_tone}」でキャプションをテーマ「${user_theme}」で作成してください。`;
-    await executeDifyInteraction(query, { ...formData, modification_request: '' });
+    
+    const query = isModification
+      ? `以下のキャプションを修正してください: ${formData.modification_request}`
+      : `クライアント「${formData.user_client}」の製品「${formData.user_products}」について、媒体「${formData.user_medium}」、雰囲気「${formData.caption_tone}」でキャプションをテーマ「${formData.user_theme}」で作成してください。`;
+
+    await executeDifyInteraction(query, formData);
   }
 
-  const handleModificationSubmit = async () => {
-      if (!formData.modification_request.trim()) { alert("修正内容を入力してください。"); return; }
-      if (!conversationId) { alert("エラー: 会話が開始されていません。"); return; }
-      const query = `以下のキャプションを修正してください: ${formData.modification_request}`;
-      await executeDifyInteraction(query, { ...formData });
-  }
-
-  const executeDifyInteraction = async (query: string, inputs: Partial<FormData>) => {
+  const executeDifyInteraction = async (query: string, inputs: FormData) => {
     setIsLoading(true);
     setShowForm(false);
 
@@ -167,7 +163,7 @@ export default function DifyCaptionBot() {
     
     const botPlaceholderId = `bot-${Date.now()}`;
     const botPlaceholderMessage: ChatMessage = {
-        id: botPlaceholderId, type: 'bot', content: 'キャプションを生成中...', timestamp: new Date(), isLoading: true
+        id: botPlaceholderId, type: 'bot', content: 'AIが考えています...', timestamp: new Date(), isLoading: true
     };
     setMessages((prev) => [...prev, userMessage, botPlaceholderMessage]);
 
@@ -182,7 +178,9 @@ export default function DifyCaptionBot() {
       if (formData.user_file.length > 0) {
         updateBotMessage(botPlaceholderId, { content: `ファイルをアップロード中...`});
         
-        const uploadedFileIds: string[] = [];
+        // ★★★★★ ここが修正点 ★★★★★
+        // Dify APIが期待するオブジェクトの配列を作成する
+        const uploadedFilesForDify = [];
         for (const file of formData.user_file) {
             const formDataForUpload = new FormData();
             formDataForUpload.append('file', file);
@@ -190,9 +188,15 @@ export default function DifyCaptionBot() {
 
             if (!uploadResponse.ok) throw new Error(`「${file.name}」のアップロードに失敗`);
             const result = await uploadResponse.json();
-            uploadedFileIds.push(result.id);
+            
+            // Difyが要求する正しい形式のオブジェクトを作成
+            uploadedFilesForDify.push({
+                type: "image", // 将来的にファイルタイプを判別する場合はここを動的にする
+                transfer_method: "local_file",
+                upload_file_id: result.id
+            });
         }
-        finalInputs.user_file = uploadedFileIds;
+        finalInputs.user_file = uploadedFilesForDify;
       }
       
       await sendMessageToDify(finalInputs, query, botPlaceholderId, updateBotMessage);
@@ -215,7 +219,7 @@ export default function DifyCaptionBot() {
     let finalConversationId: string | undefined = undefined;
 
     try {
-        updateBotMessage(botPlaceholderId, { content: 'キャプションを生成中...', isLoading: true });
+        updateBotMessage(botPlaceholderId, { content: 'AIからの応答を待っています...', isLoading: true });
         
         const response = await fetch('/api/dify', {
             method: 'POST',
@@ -225,7 +229,7 @@ export default function DifyCaptionBot() {
 
         if (!response.ok || !response.body) {
             const errorText = await response.text();
-            throw new Error(`APIリクエストに失敗 (Status: ${response.status}): ${errorText}`);
+            throw new Error(`APIリクエストエラー (Status: ${response.status}): ${errorText}`);
         }
         
         const reader = response.body.getReader();
@@ -271,7 +275,7 @@ export default function DifyCaptionBot() {
             });
             updateBotMessage(botPlaceholderId, { type: 'result', content: '', data: parsedResult, isLoading: false });
         } else {
-            throw new Error(`Difyからの応答が空か、期待する形式ではありませんでした。\n会話ID: ${finalConversationId || '取得失敗'}`);
+            throw new Error(`Difyからの応答が空でした。\n会話ID: ${finalConversationId || '取得失敗'}`);
         }
 
     } catch (error) {
@@ -329,19 +333,19 @@ export default function DifyCaptionBot() {
               <div className="space-y-4 mb-6 max-h-[60vh] overflow-y-auto">
                 {messages.map((message) => (
                       <div key={message.id} className={`flex ${message.type === "user" ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-xs lg:max-w-2xl px-4 py-3 rounded-lg break-words ${
+                          <div className={`max-w-full px-4 py-3 rounded-lg break-words ${
                               message.type === "user" ? "bg-emerald-600 text-white" :
-                              message.type === "result" ? "bg-transparent w-full" :
+                              message.type === "result" ? "bg-transparent w-full p-0" :
                               message.type === "error" ? "bg-red-50 border border-red-200 w-full" :
                               "bg-gray-100 text-gray-800"
                             }`}>
                             {message.isLoading ? (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 p-2 bg-gray-100 rounded-lg">
                                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-emerald-600"></div>
                                   <span className="text-sm text-gray-600 whitespace-pre-wrap">{message.content}</span>
                                 </div>
                             ) : message.type === "error" ? <ErrorDisplay message={message.content} /> :
-                               message.type === 'result' && message.data ? <CaptionResultDisplay result={message.data} onModifyClick={() => {setShowForm(false);}} /> :
+                               message.type === 'result' && message.data ? <CaptionResultDisplay result={message.data} onModifyClick={() => setShowForm(false)} /> :
                              <p className="whitespace-pre-wrap text-sm">{message.content}</p>
                             }
                              <p className="text-xs opacity-70 mt-2 text-right">{message.timestamp.toLocaleTimeString()}</p>
@@ -349,7 +353,8 @@ export default function DifyCaptionBot() {
                       </div>
                   ))}
               </div>
-              {showForm && !isLoading && (
+              
+              {!isLoading && (showForm || !conversationId) && (
                 <Card className="border-emerald-200 bg-emerald-50/50">
                   <CardHeader><CardTitle className="text-emerald-800 flex items-center gap-2"><Edit className="w-5 h-5" />キャプション生成フォーム</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
@@ -411,7 +416,7 @@ export default function DifyCaptionBot() {
                           )}
                       </div>
                     </div>
-                    <Button onClick={handleFormSubmit} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3" disabled={isLoading}>
+                    <Button onClick={() => handleFormSubmit(false)} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3" disabled={isLoading}>
                       <Send className="w-4 h-4 mr-2" />
                       キャプション生成
                     </Button>
@@ -422,12 +427,13 @@ export default function DifyCaptionBot() {
                 <div className="mt-4 space-y-2">
                    <Label htmlFor="modification_request" className="text-emerald-700 font-medium">修正依頼</Label>
                    <Textarea id="modification_request" value={formData.modification_request} onChange={(e) => handleFormChange('modification_request', e.target.value)} placeholder="生成されたキャプションへの修正点を具体的に入力してください。" className="border-emerald-300 focus:border-emerald-500"/>
-                   <Button onClick={handleModificationSubmit} className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={isLoading}>
+                   <Button onClick={() => handleFormSubmit(true)} className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={isLoading}>
                      <Send className="w-4 h-4 mr-2" />
                      修正依頼を送信
                    </Button>
                 </div>
               )}
+
             </CardContent>
           </Card>
         </div>
