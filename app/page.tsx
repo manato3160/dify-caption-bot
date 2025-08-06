@@ -424,9 +424,45 @@ export default function DifyCaptionBot() {
                 </Card>
               )}
               {!isLoading && conversationId && (
-                <div className="mt-4 space-y-2">
-                   <Label htmlFor="modification_request" className="text-emerald-700 font-medium">修正依頼</Label>
-                   <Textarea id="modification_request" value={formData.modification_request} onChange={(e) => handleFormChange('modification_request', e.target.value)} placeholder="生成されたキャプションへの修正点を具体的に入力してください。" className="border-emerald-300 focus:border-emerald-500"/>
+                <div className="mt-4 space-y-4">
+                   <div>
+                     <Label htmlFor="modification_request" className="text-emerald-700 font-medium">修正依頼</Label>
+                     <Textarea id="modification_request" value={formData.modification_request} onChange={(e) => handleFormChange('modification_request', e.target.value)} placeholder="生成されたキャプションへの修正点を具体的に入力してください。" className="border-emerald-300 focus:border-emerald-500"/>
+                   </div>
+                   
+                   {/* ▼▼▼ ここから追加 ▼▼▼ */}
+                   <div>
+                      <Label htmlFor="user_file_modification" className="text-emerald-700 font-medium">参考資料の追加・変更（任意）</Label>
+                      <div onPaste={handlePaste} className="relative mt-1">
+                          <div className="flex flex-col items-center justify-center p-4 bg-white border-2 border-dashed border-emerald-300 rounded-lg text-center cursor-pointer hover:border-emerald-500 transition-colors">
+                            <ImageUp className="mx-auto h-12 w-12 text-gray-400" />
+                            <label htmlFor="user_file_input_modification" className="relative cursor-pointer rounded-md font-semibold text-emerald-600 focus-within:outline-none focus-within:ring-2 focus-within:ring-emerald-600 focus-within:ring-offset-2 hover:text-emerald-500">
+                                <span>ファイルを選択</span>
+                                <input id="user_file_input_modification" name="user_file_input_modification" type="file" className="sr-only" onChange={handleFileUpload} accept="image/*,.pdf,.doc,.docx" multiple />
+                            </label>
+                            <p className="pl-1">するか、ここにドラッグ＆ドロップ</p>
+                            <p className="text-xs leading-5 text-gray-600">または、画像をコピーしてこのエリアにペーストしてください</p>
+                            {pasteStatus && (<p className="text-sm font-semibold text-green-600 mt-2">{pasteStatus}</p>)}
+                          </div>
+                          {formData.user_file.length > 0 && (
+                            <div className="mt-2 space-y-2">
+                                <h4 className="text-sm font-medium">添付ファイル一覧:</h4>
+                                <ul className="divide-y divide-emerald-200 rounded-md border border-emerald-200">
+                                    {formData.user_file.map((file, index) => (
+                                      <li key={index} className="flex items-center justify-between py-1.5 px-2 text-sm">
+                                        <span className="truncate pr-2">{file.name}</span>
+                                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemoveFile(file)}>
+                                          <XCircle className="h-4 w-4 text-gray-500 hover:text-destructive"/>
+                                        </Button>
+                                      </li>
+                                    ))}
+                                </ul>
+                            </div>
+                          )}
+                      </div>
+                    </div>
+                   {/* ▲▲▲ ここまで追加 ▲▲▲ */}
+
                    <Button onClick={() => handleFormSubmit(true)} className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={isLoading}>
                      <Send className="w-4 h-4 mr-2" />
                      修正依頼を送信
